@@ -177,7 +177,10 @@ export async function fetchSentinelNDVI(geometry: any) {
 /**
  * Fetch a Visual Heatmap (NDVI, NDMI, NDRE) for a given Geometry
  */
-export async function fetchSentinelImage(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL' = 'NDVI') {
+/**
+ * Fetch a Sentinel Image as a raw Buffer (for API Routes)
+ */
+export async function fetchSentinelBuffer(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL' = 'NDVI') {
     try {
         const token = await getSentinelToken();
 
@@ -204,8 +207,6 @@ function evaluatePixel(sample) {
   
   if (ndvi < 0) return [0.5, 0.5, 0.5, 1]; // Gray for water/snow
   
-  // Simple RGB interpolation for NDVI
-  // Red (low) -> Yellow (mid) -> Green (high)
   let r, g, b;
   if (ndvi < 0.5) {
       r = 1.0;
@@ -217,16 +218,10 @@ function evaluatePixel(sample) {
       b = 0.0;
   }
   
-  return [r, g, b, 1]; // Fully opaque where data exists
+  return [r, g, b, 1];
 }
 `;
         } else if (layerType === 'NDRE') {
-            // NDRE Evalscript (Red Edge Health)
-            // (B08 - B05) / (B08 + B05)
-            // Visualization: 
-            // High (> 0.6) -> Deep Green (Very Healthy)
-            // Mid (0.2 - 0.6) -> Light Green/Yellow (Average)
-            // Low (< 0.2) -> Red/Brown (Sick/Stressed)
             evalscript = `
 //VERSION=3
 function setup() {
@@ -242,13 +237,6 @@ function evaluatePixel(sample) {
   if (sample.dataMask == 0) return [0,0,0,0];
   
   let r, g, b;
-  
-  // NDRE Scale
-  // < 0.2: Very Low (Red)
-  // 0.2 - 0.5: Low (Orange/Yellow)
-  // 0.5 - 0.7: Good (Light Green)
-  // > 0.7: Excellent (Deep Green)
-  
   if (ndre < 0.2) {
      r = 0.8; g = 0.2; b = 0.2;
   } else if (ndre < 0.5) {
@@ -272,9 +260,6 @@ function evaluatePixel(sample) {
 }
 `;
         } else if (layerType === 'VISUAL') {
-            // True Color (RGB) Evalscript
-            // B04 (Red), B03 (Green), B02 (Blue)
-            // Multiplied by 2.5 to increase brightness
             evalscript = `
 //VERSION=3
 function setup() {
@@ -286,14 +271,10 @@ function setup() {
 
 function evaluatePixel(sample) {
   if (sample.dataMask == 0) return [0,0,0,0];
-  
-  // Standard RGB with gain for brightness
   return [sample.B04 * 2.5, sample.B03 * 2.5, sample.B02 * 2.5, 1];
 }
 `;
         } else {
-            // NDMI Evalscript (Moisture)
-            // (B08 - B11) / (B08 + B11)
             evalscript = `
 //VERSION=3
 function setup() {
@@ -309,7 +290,6 @@ function evaluatePixel(sample) {
   if (sample.dataMask == 0) return [0,0,0,0];
   
   let r, g, b;
-  
   if (ndmi < -0.2) {
      r = 0.6; g = 0.4; b = 0.2; 
   } else if (ndmi < 0.1) {
@@ -374,11 +354,20 @@ function evaluatePixel(sample) {
         }
 
         const buffer = await response.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
-        return `data:image/png;base64,${base64}`;
+        return buffer;
 
     } catch (error) {
-        console.error("Fetch Visual Sentinel Error:", error);
+        console.error("Fetch Buffer Error:", error);
         return null;
     }
+}
+
+/**
+ * Fetch a Visual Heatmap (NDVI, NDMI, NDRE) for a given Geometry
+ */
+export async function fetchSentinelImage(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL' = 'NDVI') {
+    const buffer = await fetchSentinelBuffer(geometry, layerType);
+    if (!buffer) return null;
+    const base64 = Buffer.from(buffer).toString('base64');
+    return `data:image/png;base64,${base64}`;
 }

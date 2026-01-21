@@ -36,6 +36,7 @@ const MapFocusHandler = () => {
 const Map = () => {
   const { fields, removeField, triggerAnalysis, clearAllFields, activeFieldId, setActiveFieldId, isLoaded } = useField();
   const [mapLayer, setMapLayer] = useState<'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL'>('NDVI');
+  const [baseLayer, setBaseLayer] = useState<'ESRI' | 'SENTINEL'>('ESRI');
 
   useEffect(() => {
     // @ts-ignore
@@ -63,10 +64,18 @@ const Map = () => {
         closePopupOnClick={false}
         style={{ height: '100%', width: '100%' }}
       >
-        <TileLayer
-          attribution='Tiles &copy; Esri &mdash; Source: Esri'
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        />
+        {baseLayer === 'ESRI' ? (
+          <TileLayer
+            attribution='Tiles &copy; Esri &mdash; Source: Esri'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          />
+        ) : (
+          <TileLayer
+            attribution='Sentinel-2 &copy; Copernicus'
+            url="/api/tiles/{z}/{x}/{y}"
+            maxNativeZoom={14} // Sentinel resolution limit
+          />
+        )}
 
         {fields.map((field) => (
           <GeoJSON
@@ -157,7 +166,26 @@ const Map = () => {
         </Draggable>
       )}
 
-      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-2">
+      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-2 items-end">
+        {/* Explorer Mode Toggle */}
+        <div className="bg-white p-2 rounded-lg shadow-xl flex flex-col gap-1 border border-gray-200">
+          <label className="font-bold text-[10px] text-gray-500 uppercase tracking-wider px-1">Global View</label>
+          <div className="flex gap-1 bg-gray-100 p-1 rounded">
+            <button
+              onClick={() => setBaseLayer('ESRI')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${baseLayer === 'ESRI' ? 'bg-gray-800 text-white shadow' : 'text-gray-500 hover:bg-gray-200'}`}
+            >
+              Static (Clear)
+            </button>
+            <button
+              onClick={() => setBaseLayer('SENTINEL')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${baseLayer === 'SENTINEL' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:bg-gray-200'}`}
+            >
+              Live (Cloudy)
+            </button>
+          </div>
+        </div>
+
         <button
           onClick={clearAllFields}
           className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow-lg transition-transform hover:scale-105"
