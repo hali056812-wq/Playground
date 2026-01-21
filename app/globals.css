@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Leaflet Geosearch Overrides */
+/* Force container background */
+.leaflet-control-geosearch form {
+  background-color: #ffffff !important;
+}
+
+/* Force Input Text Color and Background */
+.leaflet-control-geosearch form input.glass {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+  font-weight: 600 !important;
+  /* Make it bolder */
+}
+
+/* Fallback for generic input in the control */
+.leaflet-control-geosearch form input {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+/* Placeholder text */
+.leaflet-control-geosearch form input::placeholder {
+  color: #444444 !important;
+  /* Dark gray for placeholder */
+  opacity: 1 !important;
+}
+
+/* Reset button (x) */
+.leaflet-control-geosearch a.reset {
+  color: #000000 !important;
+  background-color: transparent !important;
+}
+
+/* Results Dropdown */
+.leaflet-control-geosearch .results {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.leaflet-control-geosearch .results>* {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+  border: 1px solid #ddd !important;
+}
+
+.leaflet-control-geosearch .results>.active,
+.leaflet-control-geosearch .results> :hover {
+  background-color: #f0f0f0 !important;
+  color: #000000 !important;
+  font-weight: bold !important;
+}
