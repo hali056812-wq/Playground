@@ -12,6 +12,7 @@ const STATS_URL = 'https://sh.dataspace.copernicus.eu/api/v1/statistics';
  * Fetch OAuth2 Access Token for Sentinel Hub
  */
 async function getSentinelToken() {
+    // Re-read env vars to be safe
     const SH_CLIENT_ID = process.env.SH_CLIENT_ID;
     const SH_CLIENT_SECRET = process.env.SH_CLIENT_SECRET;
 
@@ -174,9 +175,9 @@ export async function fetchSentinelNDVI(geometry: any) {
 }
 
 /**
- * Fetch a Visual NDVI Heatmap (Image) for a given Geometry
+ * Fetch a Visual Heatmap (NDVI, NDMI, NDRE) for a given Geometry
  */
-export async function fetchSentinelNDVIImage(geometry: any) {
+export async function fetchSentinelImage(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' = 'NDVI') {
     try {
         const token = await getSentinelToken();
 
@@ -184,13 +185,15 @@ export async function fetchSentinelNDVIImage(geometry: any) {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 30);
 
-        // Visual Evalscript for a nice Color Gradient
-        const evalscript = `
+        let evalscript = '';
+
+        if (layerType === 'NDVI') {
+            evalscript = `
 //VERSION=3
 function setup() {
   return {
     input: ["B04", "B08", "dataMask"],
-    output: { bands: 4 } // RGBA
+    output: { bands: 4 }
   };
 }
 
@@ -217,6 +220,94 @@ function evaluatePixel(sample) {
   return [r, g, b, 1]; // Fully opaque where data exists
 }
 `;
+        } else if (layerType === 'NDRE') {
+            // NDRE Evalscript (Red Edge Health)
+            // (B08 - B05) / (B08 + B05)
+            // Visualization: 
+            // High (> 0.6) -> Deep Green (Very Healthy)
+            // Mid (0.2 - 0.6) -> Light Green/Yellow (Average)
+            // Low (< 0.2) -> Red/Brown (Sick/Stressed)
+            evalscript = `
+//VERSION=3
+function setup() {
+  return {
+    input: ["B08", "B05", "dataMask"],
+    output: { bands: 4 }
+  };
+}
+
+function evaluatePixel(sample) {
+  let ndre = (sample.B08 - sample.B05) / (sample.B08 + sample.B05);
+  
+  if (sample.dataMask == 0) return [0,0,0,0];
+  
+  let r, g, b;
+  
+  // NDRE Scale
+  // < 0.2: Very Low (Red)
+  // 0.2 - 0.5: Low (Orange/Yellow)
+  // 0.5 - 0.7: Good (Light Green)
+  // > 0.7: Excellent (Deep Green)
+  
+  if (ndre < 0.2) {
+     r = 0.8; g = 0.2; b = 0.2;
+  } else if (ndre < 0.5) {
+     let t = (ndre - 0.2) / 0.3;
+     r = 1.0; 
+     g = 0.5 + (0.5 * t); 
+     b = 0.0;
+  } else if (ndre < 0.7) {
+     let t = (ndre - 0.5) / 0.2;
+     r = 1.0 - t; 
+     g = 1.0;
+     b = 0.0;
+  } else {
+     let t = (ndre - 0.7) / 0.3;
+     r = 0.0;
+     g = 1.0 - (0.4 * t); 
+     b = 0.0;
+  }
+
+  return [r, g, b, 1];
+}
+`;
+        } else {
+            // NDMI Evalscript (Moisture)
+            // (B08 - B11) / (B08 + B11)
+            evalscript = `
+//VERSION=3
+function setup() {
+  return {
+    input: ["B08", "B11", "dataMask"],
+    output: { bands: 4 }
+  };
+}
+
+function evaluatePixel(sample) {
+  let ndmi = (sample.B08 - sample.B11) / (sample.B08 + sample.B11);
+  
+  if (sample.dataMask == 0) return [0,0,0,0];
+  
+  let r, g, b;
+  
+  if (ndmi < -0.2) {
+     r = 0.6; g = 0.4; b = 0.2; 
+  } else if (ndmi < 0.1) {
+     let t = (ndmi + 0.2) / 0.3;
+     r = 0.6 + (0.4 * t);
+     g = 0.4 + (0.6 * t);
+     b = 0.2 + (0.8 * t);
+  } else {
+     let t = (ndmi - 0.1) / 0.9;
+     r = 1.0 - t;
+     g = 1.0 - t;
+     b = 1.0 - (0.2 * t);
+  }
+
+  return [r, g, b, 1];
+}
+`;
+        }
 
         const payload = {
             input: {
@@ -267,7 +358,7 @@ function evaluatePixel(sample) {
         return `data:image/png;base64,${base64}`;
 
     } catch (error) {
-        console.error("Fetch Visual NDVI Error:", error);
+        console.error("Fetch Visual Sentinel Error:", error);
         return null;
     }
 }

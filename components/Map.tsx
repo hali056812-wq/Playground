@@ -14,6 +14,7 @@ import AnalysisModal from './AnalysisModal'; // We can trigger validation from h
 // For now, let's just trigger the 'window.analyze_ID' if we want to keep it simple, 
 // OR better: use the analyze function directly if we import it.
 import { analyzeField } from '@/actions/analyzeField';
+import Draggable from './Draggable';
 
 // Helper to auto-center on the last field when loaded
 const MapFocusHandler = () => {
@@ -27,13 +28,14 @@ const MapFocusHandler = () => {
     if (activeField && activeField.center) {
       map.flyTo([activeField.center.lat, activeField.center.lng], 15, { duration: 1.5 });
     }
-  }, [activeFieldId, fields, map]);
+  }, [activeFieldId, map]); // Removed 'fields' to prevent refocusing on every field list update
 
   return null;
 };
 
 const Map = () => {
   const { fields, removeField, triggerAnalysis, clearAllFields, activeFieldId, setActiveFieldId, isLoaded } = useField();
+  const [mapLayer, setMapLayer] = useState<'NDVI' | 'NDMI' | 'NDRE'>('NDVI');
 
   useEffect(() => {
     // @ts-ignore
@@ -44,6 +46,13 @@ const Map = () => {
       shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
     });
   }, []);
+
+  // Autofocus on the most recent field ONLY upon initial page load
+  useEffect(() => {
+    if (isLoaded && fields.length > 0 && !activeFieldId) {
+      setActiveFieldId(fields[fields.length - 1].id);
+    }
+  }, [isLoaded]); // Only run when initial load completes
 
   return (
     <div className="h-screen w-full relative">
@@ -106,20 +115,48 @@ const Map = () => {
           </GeoJSON>
         ))}
 
-        <SentinelOverlay polygonId={activeFieldId} isVisible={!!activeFieldId} />
+        <SentinelOverlay polygonId={activeFieldId} isVisible={!!activeFieldId} layerType={mapLayer} />
         <MapSearch />
         <MapDraw />
         <MapFocusHandler />
 
-        <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-2">
-          <button
-            onClick={clearAllFields}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow-lg transition-transform hover:scale-105"
-          >
-            🚨 Hard Reset Map
-          </button>
-        </div>
       </MapContainer>
+
+      {/* UI overlays outside MapContainer to avoid Leaflet DOM conflicts */}
+      <Draggable className="absolute top-4 right-4 z-[1000]">
+        <div className="bg-white p-3 rounded-lg shadow-xl flex flex-col gap-2 border border-gray-200 min-w-[200px]">
+          <label className="font-bold text-xs text-gray-500 uppercase tracking-wider">Analysis Layer</label>
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-md">
+            <button
+              onClick={() => setMapLayer('NDVI')}
+              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDVI' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+            >
+              🌱 Vegetation
+            </button>
+            <button
+              onClick={() => setMapLayer('NDMI')}
+              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDMI' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+            >
+              💧 Moisture
+            </button>
+            <button
+              onClick={() => setMapLayer('NDRE')}
+              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDRE' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+            >
+              ❤️ Health
+            </button>
+          </div>
+        </div>
+      </Draggable>
+
+      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-2">
+        <button
+          onClick={clearAllFields}
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow-lg transition-transform hover:scale-105"
+        >
+          🚨 Hard Reset Map
+        </button>
+      </div>
     </div>
   );
 };

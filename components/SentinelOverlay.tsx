@@ -1,17 +1,17 @@
 'use client';
-
 import { useEffect, useState } from 'react';
 import { ImageOverlay, useMap } from 'react-leaflet';
 import { useField, Field } from './FieldContext';
-import { fetchSentinelNDVIImage } from '@/actions/satellite';
+import { fetchSentinelImage } from '@/actions/satellite';
 import L from 'leaflet';
 
 interface SentinelOverlayProps {
-    polygonId?: string; // This is actually the field ID now in our simplified logic
+    polygonId?: string;
     isVisible: boolean;
+    layerType: 'NDVI' | 'NDMI' | 'NDRE';
 }
 
-const SentinelOverlay = ({ polygonId, isVisible }: SentinelOverlayProps) => {
+const SentinelOverlay = ({ polygonId, isVisible, layerType }: SentinelOverlayProps) => {
     const { fields } = useField();
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [bounds, setBounds] = useState<[[number, number], [number, number]] | null>(null);
@@ -56,7 +56,7 @@ const SentinelOverlay = ({ polygonId, isVisible }: SentinelOverlayProps) => {
             setBounds(fieldBounds);
 
             // Fetch Image
-            const url = await fetchSentinelNDVIImage(geom);
+            const url = await fetchSentinelImage(geom, layerType);
             if (url && isMounted) {
                 setImageUrl(url);
             }
@@ -65,7 +65,7 @@ const SentinelOverlay = ({ polygonId, isVisible }: SentinelOverlayProps) => {
         loadOverlay();
 
         return () => { isMounted = false; };
-    }, [polygonId, isVisible, fields, map]);
+    }, [polygonId, isVisible, fields, map, layerType]);
 
     if (!isVisible || !imageUrl || !bounds) return null;
 
