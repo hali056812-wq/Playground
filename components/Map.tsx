@@ -35,7 +35,7 @@ const MapFocusHandler = () => {
 
 const Map = () => {
   const { fields, removeField, triggerAnalysis, clearAllFields, activeFieldId, setActiveFieldId, isLoaded } = useField();
-  const [mapLayer, setMapLayer] = useState<'NDVI' | 'NDMI' | 'NDRE'>('NDVI');
+  const [mapLayer, setMapLayer] = useState<'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL'>('NDVI');
 
   useEffect(() => {
     // @ts-ignore
@@ -123,31 +123,39 @@ const Map = () => {
       </MapContainer>
 
       {/* UI overlays outside MapContainer to avoid Leaflet DOM conflicts */}
-      <Draggable className="absolute top-4 right-4 z-[1000]">
-        <div className="bg-white p-3 rounded-lg shadow-xl flex flex-col gap-2 border border-gray-200 min-w-[200px]">
-          <label className="font-bold text-xs text-gray-500 uppercase tracking-wider">Analysis Layer</label>
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-md">
-            <button
-              onClick={() => setMapLayer('NDVI')}
-              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDVI' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
-            >
-              🌱 Vegetation
-            </button>
-            <button
-              onClick={() => setMapLayer('NDMI')}
-              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDMI' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
-            >
-              💧 Moisture
-            </button>
-            <button
-              onClick={() => setMapLayer('NDRE')}
-              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDRE' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
-            >
-              ❤️ Health
-            </button>
+      {isLoaded && (
+        <Draggable className="absolute top-4 right-4 z-[1000]">
+          <div className="bg-white p-3 rounded-lg shadow-xl flex flex-col gap-2 border border-gray-200 min-w-[200px]">
+            <label className="font-bold text-xs text-gray-500 uppercase tracking-wider">Analysis Layer</label>
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-md">
+              <button
+                onClick={() => setMapLayer('NDVI')}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDVI' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              >
+                🌱 Vegetation
+              </button>
+              <button
+                onClick={() => setMapLayer('NDMI')}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDMI' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              >
+                💧 Moisture
+              </button>
+              <button
+                onClick={() => setMapLayer('NDRE')}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'NDRE' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              >
+                ❤️ Health
+              </button>
+              <button
+                onClick={() => setMapLayer('VISUAL')}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${mapLayer === 'VISUAL' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              >
+                👁️ Visual
+              </button>
+            </div>
           </div>
-        </div>
-      </Draggable>
+        </Draggable>
+      )}
 
       <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-2">
         <button

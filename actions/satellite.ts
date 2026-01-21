@@ -11,7 +11,7 @@ const STATS_URL = 'https://sh.dataspace.copernicus.eu/api/v1/statistics';
 /**
  * Fetch OAuth2 Access Token for Sentinel Hub
  */
-async function getSentinelToken() {
+export async function getSentinelToken() {
     // Re-read env vars to be safe
     const SH_CLIENT_ID = process.env.SH_CLIENT_ID;
     const SH_CLIENT_SECRET = process.env.SH_CLIENT_SECRET;
@@ -177,7 +177,7 @@ export async function fetchSentinelNDVI(geometry: any) {
 /**
  * Fetch a Visual Heatmap (NDVI, NDMI, NDRE) for a given Geometry
  */
-export async function fetchSentinelImage(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' = 'NDVI') {
+export async function fetchSentinelImage(geometry: any, layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL' = 'NDVI') {
     try {
         const token = await getSentinelToken();
 
@@ -269,6 +269,26 @@ function evaluatePixel(sample) {
   }
 
   return [r, g, b, 1];
+}
+`;
+        } else if (layerType === 'VISUAL') {
+            // True Color (RGB) Evalscript
+            // B04 (Red), B03 (Green), B02 (Blue)
+            // Multiplied by 2.5 to increase brightness
+            evalscript = `
+//VERSION=3
+function setup() {
+  return {
+    input: ["B04", "B03", "B02", "dataMask"],
+    output: { bands: 4 }
+  };
+}
+
+function evaluatePixel(sample) {
+  if (sample.dataMask == 0) return [0,0,0,0];
+  
+  // Standard RGB with gain for brightness
+  return [sample.B04 * 2.5, sample.B03 * 2.5, sample.B02 * 2.5, 1];
 }
 `;
         } else {
