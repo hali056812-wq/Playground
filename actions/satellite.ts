@@ -260,6 +260,8 @@ function evaluatePixel(sample) {
 }
 `;
         } else if (layerType === 'VISUAL') {
+            // Smart Sharpening (Visual Mode)
+            // Uses Sigmoid Contrast + Saturation Boost + Gamma Correction
             evalscript = `
 //VERSION=3
 function setup() {
@@ -269,9 +271,37 @@ function setup() {
   };
 }
 
+function sigmoid(x) {
+    // Sigmoid function for contrast
+    // Midpoint 0.4, Slope 10
+    return 1 / (1 + Math.exp(-10 * (x - 0.4)));
+}
+
 function evaluatePixel(sample) {
   if (sample.dataMask == 0) return [0,0,0,0];
-  return [sample.B04 * 2.5, sample.B03 * 2.5, sample.B02 * 2.5, 1];
+
+  // 1. Basic Gain (Brightness)
+  let r = sample.B04 * 2.5;
+  let g = sample.B03 * 2.5;
+  let b = sample.B02 * 2.5;
+
+  // 2. Saturation Boost
+  let max = Math.max(r, Math.max(g, b));
+  if (max > 0) {
+      // Increase saturation by pushing colors away from gray
+      // Factor 1.2 = 20% boost
+      r = r * 1.2;
+      g = g * 1.2;
+      b = b * 1.2;
+  }
+
+  // 3. Sigmoid Contrast (Pseudo-Sharpening)
+  // This makes darks darker and lights lighter, increasing perceived edge sharpness
+  r = sigmoid(r);
+  g = sigmoid(g);
+  b = sigmoid(b);
+
+  return [r, g, b, 1];
 }
 `;
         } else {

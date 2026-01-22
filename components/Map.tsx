@@ -66,11 +66,13 @@ const Map = () => {
       >
         {baseLayer === 'ESRI' ? (
           <TileLayer
+            key="esri"
             attribution='Tiles &copy; Esri &mdash; Source: Esri'
             url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
           />
         ) : (
           <TileLayer
+            key="sentinel"
             attribution='Sentinel-2 &copy; Copernicus'
             url="/api/tiles/{z}/{x}/{y}"
             maxNativeZoom={14} // Sentinel resolution limit
