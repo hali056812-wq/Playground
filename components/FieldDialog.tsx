@@ -23,6 +23,7 @@ const FieldDialog = () => {
                 isLoading={analysisState.isLoading}
                 result={analysisState.result}
                 fieldName={analysisState.fieldName}
+                history={analysisState.history}
             />
         );
     }
@@ -129,23 +130,68 @@ const FieldDialog = () => {
                         />
                     </div>
 
-                    <div className="flex justify-end space-x-3 mt-6">
+                    <div className="flex justify-between items-center mt-6">
                         <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                                // Rate Land Potential Mode
+                                setName(name || "Unnamed Field");
+                                setCropType('None');
+                                setPlantingDate('Unknown');
+                                // Trigger submit programmatically or just call handler
+                                // We need to bypass the form validation for plantingDate if it's empty
+                                const fakeEvent = { preventDefault: () => { } } as React.FormEvent;
+
+                                // Direct Field Construction (Bypassing validation states)
+                                if (!tempLayer) return;
+                                const rawCenter = tempLayer.getBounds ? tempLayer.getBounds().getCenter() : (tempLayer.getLatLng ? tempLayer.getLatLng() : null);
+                                const rawGeoJSON = tempLayer.toGeoJSON();
+                                const normalizedGeoJSON = {
+                                    ...rawGeoJSON,
+                                    geometry: {
+                                        ...rawGeoJSON.geometry,
+                                        coordinates: rawGeoJSON.geometry.type === 'Polygon'
+                                            ? rawGeoJSON.geometry.coordinates.map((ring: any[]) => ring.map((coord: number[]) => [normalizeLongitude(coord[0]), coord[1]]))
+                                            : rawGeoJSON.geometry.coordinates
+                                    }
+                                };
+                                const newField = {
+                                    id: Date.now().toString(),
+                                    name: name || "Land Analysis",
+                                    cropType: "None",
+                                    plantingDate: "Unknown",
+                                    center: rawCenter ? { lat: rawCenter.lat, lng: normalizeLongitude(rawCenter.lng) } : null,
+                                    area: 0,
+                                    geometry: normalizedGeoJSON,
+                                };
+                                addField(newField);
                                 if (tempLayer) tempLayer.remove();
+                                setName(''); setCropType('Corn'); setPlantingDate('');
                                 closeDialog();
                             }}
-                            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                            className="text-sm text-green-700 underline hover:text-green-800 font-medium"
                         >
-                            Cancel
+                            Rate Land Potential Only
                         </button>
-                        <button
-                            type="submit"
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-md hover:shadow-lg transition-all"
-                        >
-                            Save Field
-                        </button>
+
+                        <div className="flex space-x-3">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (tempLayer) tempLayer.remove();
+                                    closeDialog();
+                                }}
+                                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-md hover:shadow-lg transition-all"
+                            >
+                                Save Field
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

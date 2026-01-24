@@ -8,7 +8,7 @@ import L from 'leaflet';
 interface SentinelOverlayProps {
     polygonId?: string;
     isVisible: boolean;
-    layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL';
+    layerType: 'NDVI' | 'NDMI' | 'NDRE' | 'VISUAL' | 'RADAR' | 'THERMAL';
 }
 
 const SentinelOverlay = ({ polygonId, isVisible, layerType }: SentinelOverlayProps) => {

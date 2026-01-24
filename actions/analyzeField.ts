@@ -2,8 +2,9 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 const apiKey = process.env.GOOGLE_API_KEY;
-import { fetchSentinelNDVI } from './satellite';
+import { fetchSentinelNDVI, fetchSentinelRadarStats, fetchSentinelThermalStats, fetchMultiSpectralStats } from './satellite';
 import { getVirtualSensors } from './sensors';
+import { calculateCornScience } from '../lib/cornModels';
 
 export async function analyzeField(fieldData: any) {
     if (!apiKey) {
@@ -31,10 +32,14 @@ export async function analyzeField(fieldData: any) {
         // 2. Fetch Real-time Contextual Data
         let sensorData = null;
         let ndviStats = null;
+        let radarStats = null;
+        let thermalStats = null;
+        let cornScienceData = null;
 
         console.log("Analyzing Field Data:", {
             name: fieldData.name,
-            geometry: !!fieldData.geometry
+            geometry: !!fieldData.geometry,
+            cropType: fieldData.cropType
         });
 
         // 2a. Fetch Satellite & Sensor Data
@@ -42,14 +47,36 @@ export async function analyzeField(fieldData: any) {
             try {
                 const geom = fieldData.geometry.type === 'Feature' ? fieldData.geometry.geometry : fieldData.geometry;
 
-                // Fetch in Parallel for speed
-                const [ndvi, sensors] = await Promise.all([
+                const promises: Promise<any>[] = [
                     fetchSentinelNDVI(geom),
-                    getVirtualSensors(geom, fieldData.center)
-                ]);
+                    getVirtualSensors(geom, fieldData.center),
+                    fetchSentinelRadarStats(geom),
+                    fetchSentinelThermalStats(geom)
+                ];
 
-                ndviStats = ndvi;
-                sensorData = sensors;
+                // Trigger Science Upgrade fetch if Corn
+                if (fieldData.cropType === 'Corn') {
+                    promises.push(fetchMultiSpectralStats(geom));
+                }
+
+                const results = await Promise.all(promises);
+                ndviStats = results[0];
+                sensorData = results[1];
+                radarStats = results[2];
+                thermalStats = results[3];
+
+                if (fieldData.cropType === 'Corn' && results[4]) {
+                    const multiSpec = results[4];
+                    if (multiSpec) {
+                        cornScienceData = calculateCornScience({
+                            redMean: multiSpec.redMean,
+                            redEdgeMean: multiSpec.redEdgeMean, // B05
+                            nirMean: multiSpec.nirMean
+                        });
+                        console.log("🌽 Corn Science Data:", cornScienceData);
+                    }
+                }
+
             } catch (e) {
                 console.error("Context fetch failed", e);
             }
@@ -76,37 +103,135 @@ export async function analyzeField(fieldData: any) {
             ndviString = "Satellite data exists but contains no valid vegetation measurements (likely due to current conditions).";
         }
 
-        const prompt = `
-      Act as an expert agronomist. I have a field with the following details:
-      - Field Name: ${fieldData.name}
-      - Crop Type: ${fieldData.cropType}
-      - Planting Date: ${fieldData.plantingDate}
-      - **Days After Planting**: ${daysAfterPlanting} days
-      
-      **Virtual Sensor Data (Near Real-Time)**:
-      - Air Temperature: ${currentTempF}
-      - Ground Temperature (Thermal Satellite): ${groundTemp}
-      - Soil Moisture (Estimated): ${soilMoisture}
-      - Humidity: ${humidity}
-      - Recent Precipitation: ${precp}
-      
-      **Satellite Analysis (Sentinel-2)**:
-      - **Current NDVI Mean**: ${ndviMean} (Scale: 0=Bare Soil, 1=Dense Vegetation)
-      - Detailed Stats: ${ndviString}
+        // Radar Context (New)
+        const vv = radarStats?.vvMean ? radarStats.vvMean.toFixed(3) : "N/A";
+        const vh = radarStats?.vhMean ? radarStats.vhMean.toFixed(3) : "N/A";
+        const radarNote = radarStats
+            ? `VV Backscatter: ${vv} (Surface Roughness), VH Backscatter: ${vh} (Structural Biomass)`
+            : "Radar structural data unavailable.";
 
-      **CRITICAL LOGIC**:
-      1. Combine the **NDVI** (how green it is) with the **Sensor Data** (how hot/dry it is).
-      2. If soil moisture is low but NDVI is high, warn about upcoming stress.
-      3. Use the "Days After Planting" to determine if the crop is on schedule.
+        // Thermal Data Context (New)
+        const groundTempLST = thermalStats?.tempF ? thermalStats.tempF.toFixed(1) : "N/A";
+        const thermalNote = thermalStats
+            ? `Land Surface Temperature (LST): ${groundTempLST}°F`
+            : "Direct thermal satellite data unavailable.";
 
-      Provide a brief, actionable analysis in markdown:
-      1. **Growth Stage Estimation**: Based on DAP.
-      2. **Crop Health Analysis**: Interpret NDVI and Sensors together.
-      3. **Environmental Risks**: Analyze Temp/Moisture/Precip.
-      4. **Recommendation**: One key strategic action.
+        let prompt = "";
 
-      Max 200 words.
-    `;
+        if (fieldData.cropType === "None") {
+            // EXPERT LAND POTENTIAL MODE
+            prompt = `
+              Act as an expert Land Appraiser and Agronomist. I am evaluating a plot of land for potential agriculture usage.
+              - Field Name: ${fieldData.name}
+              - **Current Status**: Fallow / Unplanted (Analyzing Land Potential)
+              
+              **Land Data (Real-Time)**:
+              - Air Temp: ${currentTempF}
+              - Ground Temp: ${groundTemp}
+              - Soil Moisture (3-9cm Root Zone): ${soilMoisture}
+              - Rainfall (Recent): ${precp}
+              
+              **Vegetation History (Last 30 Days)**:
+              - NDVI Mean: ${ndviMean}
+              - ${ndviString}
+              
+              **Physical Structure**:
+              - ${radarNote}
+              
+              **CRITICAL ANALYSIS**:
+              1. **Soil Capability**: Analyze the Soil Moisture (${soilMoisture}) and Thermal properties. Is it currently holding water well?
+              2. **Vegetation Potential**: Look at the NDVI. If it's low (0-0.2), it's bare soil (good for planting). If it's high (>0.4), it's already overgrown (needs clearing) or is a forest/pasture.
+              3. **Suitability**: Based on this climate and soil profile, what crops would thrive here?
+              
+              Provide a "Land Potential Report":
+              1. **Current Condition**: Describe the land (Bare, grassy, wet, dry).
+              2. **Soil & Water Rating**: Grade the moisture retention (Low/Med/High).
+              3. **Recommended Crops**: List 3 suitable crops for this profile.
+              4. **Action Item**: First step to prepare for planting.
+              
+              Max 200 words.
+            `;
+        } else {
+            // STANDARD CROP HEALTH MODE
+
+            // 1. Define Crop-Specific Rules ("The Vibe Coded Logic")
+            let CORN_RULES = "";
+
+            if (fieldData.cropType === 'Corn' && cornScienceData) {
+                // SCIENCE UPGRADE INJECTED HERE
+                CORN_RULES = `
+                 **🌽 SCIENCE UPGRADE ACTIVE (Calibrated Models)**:
+                 We have run specific regression models on this field using Sentinel-2 Band 5 (705nm).
+                 - **Measured Nitrogen Content**: ${cornScienceData.nitrogenMassPercent}% (Target: >3.5%)
+                 - **Photosynthetic Capacity (Vmax)**: ${cornScienceData.vmax} umol/m2/s (Healthy Range: 50-80)
+                 - **Chlorophyll Content**: ${cornScienceData.chlorophyllContent} ug/cm2 (Target: >40 ug/cm2)
+                 
+                 **CORN SPECIFIC ANALYSIS**:
+                 - Compare the Measured Nitrogen (${cornScienceData.nitrogenMassPercent}%) to the benchmark (3.5%). 
+                   - If < 3.0%, ALERT the user about NITROGEN DEFICIENCY.
+                   - If > 4.5%, advise that fertilization is adequate/high.
+                 - Evaluate Vmax (${cornScienceData.vmax}). Low Vmax (<40) indicates stunted photosynthesis.
+                 - **Yield Prediction**: Based on these bio-markers, estimate if yield will be High, Average, or Low (Target 12 Mg/ha).
+                 `;
+            } else {
+                // Fallback if Science Data fails or not corn
+                CORN_RULES = `
+                  **CORN SPECIFIC ANALYSIS**:
+                  - **Yield Benchmark**: In this region, target yield is 10-12 Mg/ha. If prediction is lower, flag as underperforming.
+                  - **Nitrogen Threshold**: Laboratory trials (Illinois Data) indicate that if Calculated Nitrogen is < 3.0%, the plant is essentially starving.
+                  - **Thermal Stress**: If Land Surface Temp > Air Temp + 2°C, assume transpiration has stopped (Crop Fever).
+                `;
+            }
+
+            let specificInstructions = "";
+            if (fieldData.cropType === 'Corn') {
+                specificInstructions = CORN_RULES;
+            } else {
+                specificInstructions = "**General Analysis**: Provide standard agronomic advice based on the available sensor data.";
+            }
+
+            prompt = `
+              Act as an expert agronomist. I have a field with the following details:
+              - Field Name: ${fieldData.name}
+              - Crop Type: ${fieldData.cropType}
+              - Planting Date: ${fieldData.plantingDate}
+              - **Days After Planting**: ${daysAfterPlanting} days
+              
+              ${specificInstructions}
+
+              **Virtual Sensor Data (Near Real-Time)**:
+              - Air Temperature: ${currentTempF}
+              - Ground Temperature (Thermal Satellite): ${groundTemp}
+              - Soil Moisture (Estimated): ${soilMoisture}
+              - Humidity: ${humidity}
+              - Recent Precipitation: ${precp}
+              
+              **Satellite Analysis (Sentinel-2 - Optical)**:
+              - **Current NDVI Mean**: ${ndviMean} (Scale: 0=Bare Soil, 1=Dense Vegetation)
+              - Detailed Stats: ${ndviString}
+        
+              **Radar Analysis (Sentinel-1 - Structural)**:
+              - ${radarNote}
+        
+              **Thermal Water Stress Analysis (Landsat-8/9)**:
+              - ${thermalNote}
+        
+              **CRITICAL LOGIC**:
+              1. **Early Stress Detection**: Compare Surface Temperature (${groundTempLST}°F) vs Air Temperature (${currentTempF}°F). 
+                 - If Surface Temp is >10°F higher than Air Temp, the crop is likely under "Transpiration Stress" (closing stomata to save water). 
+                 - This is an early warning system for drought (3-5 days ahead of visible wilting).
+              2. Combine **NDVI** (greenness) with **Radar** (structure). If NDVI is low due to clouds, rely on Radar VV/VH to assess biomass structure.
+              3. Use Soil Moisture, Precipitation, and Thermal LST to calculate drought risk.
+        
+              Provide a brief, actionable analysis in markdown:
+              1. **Growth Stage Estimation**: Based on DAP.
+              2. **Crop Health Analysis**: Interpret NDVI, Radar, Thermal, and Sensors together. Prioritize the Thermal "Crop Fever" warning if detected.
+              3. **Environmental Risks**: Analyze Temp/Moisture/Precip.
+              4. **Recommendation**: One key strategic action.
+        
+              Max 200 words.
+            `;
+        }
 
         const result = await model.generateContent(prompt);
         const response = await result.response;

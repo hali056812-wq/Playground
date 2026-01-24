@@ -1,9 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 
 
 import { analyzeField } from '@/actions/analyzeField';
+import { fetchSentinelHistory } from '@/actions/satellite';
 
 export interface Field {
     id: string;
@@ -21,6 +22,7 @@ interface AnalysisState {
     isLoading: boolean;
     result: string | null;
     fieldName: string;
+    history: { date: string; ndvi: number }[] | null;
 }
 
 interface FieldContextType {
@@ -55,7 +57,8 @@ export const FieldProvider = ({ children }: { children: ReactNode }) => {
         isOpen: false,
         isLoading: false,
         result: null,
-        fieldName: ''
+        fieldName: '',
+        history: null
     });
 
     // Load from Local Storage on Mount
@@ -81,47 +84,58 @@ export const FieldProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [fields, isLoaded]);
 
-    const addField = async (field: Field) => {
+    const addField = useCallback(async (field: Field) => {
         setFields((prev) => {
             if (prev.find(f => f.id === field.id)) return prev;
             return [...prev, field];
         });
-    };
+    }, []);
 
-    const removeField = (id: string) => {
+    const removeField = useCallback((id: string) => {
         setFields((prev) => prev.filter((f) => f.id !== id));
-    };
+    }, []);
 
-    const clearAllFields = () => {
+    const clearAllFields = useCallback(() => {
         if (confirm("Are you sure you want to delete ALL fields and reset the map?")) {
             setFields([]);
             localStorage.removeItem('satellite_fields');
             window.location.reload(); // Force reload to clear all layer states
         }
-    };
+    }, []);
 
-    const openDialog = (layer: any) => {
+    const openDialog = useCallback((layer: any) => {
         setTempLayer(layer);
         setIsDialogOpen(true);
-    };
+    }, []);
 
-    const closeDialog = () => {
+    const closeDialog = useCallback(() => {
         setIsDialogOpen(false);
         setTempLayer(null);
-    };
+    }, []);
 
     // Analysis Logic
-    const triggerAnalysis = async (field: Field) => {
+    const triggerAnalysis = useCallback(async (field: Field) => {
         setAnalysisState({
             isOpen: true,
             isLoading: true,
             result: null,
-            fieldName: field.name
+            fieldName: field.name,
+            history: null
         });
 
         try {
-            const result = await analyzeField(field);
-            setAnalysisState(prev => ({ ...prev, isLoading: false, result }));
+            // Run analysis and history fetch in parallel
+            const [result, history] = await Promise.all([
+                analyzeField(field),
+                fetchSentinelHistory(field.geometry)
+            ]);
+
+            setAnalysisState(prev => ({
+                ...prev,
+                isLoading: false,
+                result,
+                history
+            }));
         } catch (error) {
             console.error("Analysis failed", error);
             setAnalysisState(prev => ({
@@ -130,7 +144,7 @@ export const FieldProvider = ({ children }: { children: ReactNode }) => {
                 result: "Analysis failed. Please try again."
             }));
         }
-    };
+    }, []);
 
     const closeAnalysis = () => {
         setAnalysisState(prev => ({ ...prev, isOpen: false }));
