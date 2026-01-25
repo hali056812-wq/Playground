@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-24T19:03:01.238Z",
+  "timestamp": "2026-01-25T16:56:54.246Z",
   "api_endpoint": "Statistical API",
   "geometry_sent": {
     "type": "Polygon",
@@ -40,8 +40,8 @@
     "data": [
       {
         "interval": {
-          "from": "2025-12-25T19:03:00.359Z",
-          "to": "2026-01-24T19:03:00.359Z"
+          "from": "2025-12-26T16:56:53.638Z",
+          "to": "2026-01-25T16:56:53.638Z"
         },
         "outputs": {
           "default": {

@@ -680,13 +680,14 @@ export async function fetchSentinelHistory(geometryInput: any) {
         const startDate = new Date();
         startDate.setMonth(startDate.getMonth() - 6);
 
+
         const evalscript = `
         //VERSION=3
         function setup() {
             return {
-                input: [{ bands: ["B04", "B08", "dataMask"] }],
+                input: [{ bands: ["B04", "B05", "B08", "dataMask"] }],
                 output: [
-                    { id: "default", bands: 1 },
+                    { id: "default", bands: 2 },
                     { id: "dataMask", bands: 1 }
                 ]
             };
@@ -694,17 +695,19 @@ export async function fetchSentinelHistory(geometryInput: any) {
 
         function evaluatePixel(sample) {
             let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
+            let ndre = (sample.B08 - sample.B05) / (sample.B08 + sample.B05);
 
             if (sample.dataMask == 0) return {
-                default: [0],
+                default: [0, 0],
                 dataMask: [0]
             };
 
-            // Filter out water/snow negative values for cleaner charts
+            // Filter out water/snow negative values
             if (ndvi < 0) ndvi = 0;
+            if (ndre < 0) ndre = 0;
 
             return {
-                default: [ndvi],
+                default: [ndvi, ndre],
                 dataMask: [sample.dataMask]
             };
         }
@@ -771,16 +774,20 @@ export async function fetchSentinelHistory(geometryInput: any) {
         const data = JSON.parse(rawText);
 
         // Parse and cleanup data
-        // We want: [{ date: '2023-05-01', ndvi: 0.75 }, ...]
+        // We want: [{ date: '2023-05-01', ndvi: 0.75, ndre: 0.45 }, ...]
         if (data.data && Array.isArray(data.data)) {
             return data.data
                 .map((interval: any) => {
-                    const stats = interval.outputs?.default?.bands?.B0?.stats;
-                    if (!stats || stats.sampleCount === 0) return null;
+                    // Bands: B0=NDVI, B1=NDRE
+                    const ndviStats = interval.outputs?.default?.bands?.B0?.stats;
+                    const ndreStats = interval.outputs?.default?.bands?.B1?.stats;
+
+                    if (!ndviStats || ndviStats.sampleCount === 0) return null;
 
                     return {
                         date: interval.interval.from.split('T')[0],
-                        ndvi: parseFloat(stats.mean.toFixed(2))
+                        ndvi: parseFloat(ndviStats.mean.toFixed(2)),
+                        ndre: ndreStats ? parseFloat(ndreStats.mean.toFixed(2)) : 0
                     };
                 })
                 .filter((item: any) => item !== null && item.ndvi > 0); // Remove empty or zero data
@@ -792,6 +799,58 @@ export async function fetchSentinelHistory(geometryInput: any) {
         console.error("Fetch History Error:", error);
         return [];
     }
+}
+
+/**
+ * Calculate Slope (Rate of Change) for the last N days
+ * Returns slope (per day change)
+ */
+export async function calculateSlope(history: any[], key: 'ndvi' | 'ndre' = 'ndre', days: number = 20): Promise<number> {
+    if (!history || history.length < 2) return 0;
+
+    // Sort logic (just in case)
+    const sorted = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Filter to last N days
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    const recent = sorted.filter(item => new Date(item.date) >= cutoff);
+
+    if (recent.length < 2) return 0;
+
+    // Simple Linear Regression (Least Squares)
+    // x = day index, y = value
+    const startObj = new Date(recent[0].date);
+    const points = recent.map(r => ({
+        x: (new Date(r.date).getTime() - startObj.getTime()) / (1000 * 60 * 60 * 24), // Days from start
+        y: r[key]
+    }));
+
+    const n = points.length;
+    const sumX = points.reduce((acc, p) => acc + p.x, 0);
+    const sumY = points.reduce((acc, p) => acc + p.y, 0);
+    const sumXY = points.reduce((acc, p) => acc + p.x * p.y, 0);
+    const sumXX = points.reduce((acc, p) => acc + p.x * p.x, 0);
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    return isNaN(slope) ? 0 : slope;
+}
+
+/**
+ * Calculate Z-Score Anomaly
+ */
+export async function calculateAnomaly(currentValue: number, history: any[], key: 'ndvi' | 'ndre' = 'ndre'): Promise<number> {
+    if (!history || history.length < 5) return 0;
+
+    const values = history.map(h => h[key]);
+    const mean = values.reduce((a: number, b: number) => a + b, 0) / values.length;
+    const variance = values.reduce((a: number, b: number) => a + Math.pow(b - mean, 2), 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+
+    if (stdDev === 0) return 0;
+
+    return (currentValue - mean) / stdDev;
 }
 
 /**

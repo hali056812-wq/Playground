@@ -2,30 +2,41 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-const API_KEY = process.env.AGROMONITORING_API_KEY;
+import { calculateCornScience } from '../lib/cornModels';
 
-async function testAgro() {
-    console.log("🧪 Testing Agromonitoring API Key...");
-    if (!API_KEY) {
-        console.error("❌ AGROMONITORING_API_KEY missing in .env.local");
-        return;
-    }
+async function testScience() {
+    console.log("🌽 Testing Corn Science Model...");
 
-    // Attempt to list polygons to check if key works
-    const url = `http://api.agromonitoring.com/agro/1.0/polygons?appid=${API_KEY}`;
+    // Scenario 1: Perfect Health
+    // High Chlorophyll (Cab > 40), No Slope
+    const healthy = calculateCornScience({
+        redMean: 0.05,
+        redEdgeMean: 0.15, // Low Red Edge = High Chlorphyll absorption? No, Red Edge varies.
+        // Let's use indices. 
+        // NDRE = (NIR - RE) / (NIR + RE)
+        // High NDRE = Healthy.
+        // NIR = 0.4, RE = 0.15 -> NDRE = 0.25/0.55 = 0.45 (Good)
+        nirMean: 0.4,
+        ndreSlope: 0,
+        ndreAnomaly: 0.5
+    });
 
-    try {
-        const response = await fetch(url);
-        if (response.ok) {
-            const data = await response.json();
-            console.log("✅ API SUCCESS! Polygons found:", Array.isArray(data) ? data.length : 0);
-        } else {
-            const err = await response.text();
-            console.error("❌ API FAILED:", response.status, err);
-        }
-    } catch (e) {
-        console.error("❌ Fetch Error:", e);
-    }
+    console.log("\n[Scenario 1] Healthy Field:");
+    console.log(JSON.stringify(healthy, null, 2));
+
+    // Scenario 2: Nitrogen Stress
+    // Lower NDRE, Negative Slope
+    const stressed = calculateCornScience({
+        redMean: 0.08,
+        redEdgeMean: 0.25, // Higher Red Edge Reflectance = Less Chlorophyll
+        // NIR = 0.35, RE = 0.25 -> NDRE = 0.10 / 0.60 = 0.16 (Low)
+        nirMean: 0.35,
+        ndreSlope: -0.015, // Rapid Decline
+        ndreAnomaly: -2.5
+    });
+
+    console.log("\n[Scenario 2] Stressed Field:");
+    console.log(JSON.stringify(stressed, null, 2));
 }
 
-testAgro();
+testScience();
