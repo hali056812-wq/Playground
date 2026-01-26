@@ -869,18 +869,18 @@ export async function fetchMultiSpectralStats(geometryInput: any) {
         //VERSION=3
         function setup() {
           return {
-            input: [{ bands: ["B04", "B05", "B08", "dataMask"] }],
+            input: [{ bands: ["B03", "B04", "B05", "B06", "B07", "B08", "B8A", "dataMask"] }],
             output: [
-              { id: "default", bands: 3 },
+              { id: "default", bands: 7 },
               { id: "dataMask", bands: 1 }
             ]
           };
         }
 
         function evaluatePixel(sample) {
-          if (sample.dataMask == 0) return { default: [0, 0, 0], dataMask: [0] };
+          if (sample.dataMask == 0) return { default: [0, 0, 0, 0, 0, 0, 0], dataMask: [0] };
           return {
-            default: [sample.B04, sample.B05, sample.B08],
+            default: [sample.B03, sample.B04, sample.B05, sample.B06, sample.B07, sample.B08, sample.B8A],
             dataMask: [sample.dataMask]
           };
         }
@@ -928,17 +928,25 @@ export async function fetchMultiSpectralStats(geometryInput: any) {
 
         const result = await response.json();
 
-        // Output band order: B04 (Red), B05 (RedEdge1), B08 (NIR)
-        // Indices in output: B0, B1, B2
-        const b04Stats = result.data?.[0]?.outputs?.default?.bands?.B0?.stats;
-        const b05Stats = result.data?.[0]?.outputs?.default?.bands?.B1?.stats;
-        const b08Stats = result.data?.[0]?.outputs?.default?.bands?.B2?.stats;
+        // Output band order: B03, B04, B05, B06, B07, B08, B8A
+        // Indices in output: B0..B6
+        const b03Stats = result.data?.[0]?.outputs?.default?.bands?.B0?.stats; // Green
+        const b04Stats = result.data?.[0]?.outputs?.default?.bands?.B1?.stats; // Red
+        const b05Stats = result.data?.[0]?.outputs?.default?.bands?.B2?.stats; // RedEdge1
+        const b06Stats = result.data?.[0]?.outputs?.default?.bands?.B3?.stats; // RedEdge2
+        const b07Stats = result.data?.[0]?.outputs?.default?.bands?.B4?.stats; // RedEdge3
+        const b08Stats = result.data?.[0]?.outputs?.default?.bands?.B5?.stats; // NIR
+        const b8aStats = result.data?.[0]?.outputs?.default?.bands?.B6?.stats; // Narrow NIR
 
         if (b04Stats && b05Stats && b08Stats) {
             return {
+                greenMean: b03Stats?.mean || 0,
                 redMean: b04Stats.mean,
-                redEdgeMean: b05Stats.mean,
-                nirMean: b08Stats.mean
+                redEdgeMean: b05Stats.mean,   // RE1 (705nm) - Primary Chl
+                redEdge2Mean: b06Stats?.mean || 0,
+                redEdge3Mean: b07Stats?.mean || 0,
+                nirMean: b08Stats.mean,
+                narrowNirMean: b8aStats?.mean || 0
             };
         }
 

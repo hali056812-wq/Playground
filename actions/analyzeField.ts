@@ -81,6 +81,33 @@ export async function analyzeField(fieldData: any) {
                         const currentNDRE = (multiSpec.nirMean - multiSpec.redEdgeMean) / (multiSpec.nirMean + multiSpec.redEdgeMean);
                         const realAnomaly = await calculateAnomaly(currentNDRE, historyData, 'ndre');
 
+                        // --- FEATURE DEPTH UPGRADE ---
+
+                        // 1. Radar Vegetation Index (RVI)
+                        // Formula: 4*VH / (VV + VH)
+                        let rvi = 0;
+                        if (radarStats && radarStats.vvMean && radarStats.vhMean) {
+                            rvi = (4 * radarStats.vhMean) / (radarStats.vvMean + radarStats.vhMean);
+                        }
+
+                        // 2. CWSI (Crop Water Stress Index)
+                        // Formula: (Tc - Ta - LL) / (UL - LL)
+                        // Semi-Empirical Baselines: LL = -2.5C (-5F), UL = +5.0C (+10F)
+                        let cwsi = 0;
+                        if (sensorData && sensorData.temperature && thermalStats && thermalStats.tempF) {
+                            const airTemp = parseFloat(sensorData.temperature);
+                            const canopyTemp = thermalStats.tempF;
+
+                            if (!isNaN(airTemp) && !isNaN(canopyTemp)) {
+                                const deltaT = canopyTemp - airTemp;
+                                const lowerLimit = -5.0; // Healthy: 5F cooler than air
+                                const upperLimit = 10.0;  // Stressed: 10F warmer than air
+
+                                cwsi = (deltaT - lowerLimit) / (upperLimit - lowerLimit);
+                                cwsi = Math.max(0, Math.min(1, cwsi)); // Clamp 0-1
+                            }
+                        }
+
                         cornScienceData = calculateCropScience({
                             cropType: fieldData.cropType,
                             redMean: multiSpec.redMean,
@@ -89,7 +116,11 @@ export async function analyzeField(fieldData: any) {
                             ndreSlope: ndreSlope,
                             ndreAnomaly: realAnomaly
                         });
-                        console.log(`🧬 ${fieldData.cropType} Science Data:`, cornScienceData);
+
+                        // Inject Advanced Features
+                        (cornScienceData as any).rvi = parseFloat(rvi.toFixed(2));
+                        (cornScienceData as any).cwsi = parseFloat(cwsi.toFixed(2));
+                        console.log(`🧬 ${fieldData.cropType} Science Data (Advanced):`, cornScienceData);
                     }
                 }
 
@@ -188,10 +219,17 @@ export async function analyzeField(fieldData: any) {
                  - **Chlorophyll Content**: ${cornScienceData.chlorophyllContent} ug/cm2
                  - **Estimated Nitrogen**: ${cornScienceData.nitrogenMassPercent}% (Deficiency Risk: ${cornScienceData.nitrogenRisk})
                  - **Photosynthetic Capacity (Vmax)**: ${cornScienceData.vmax} umol/m2/s
+
+                 **FEATURE DEPTH UPGRADE (Ph.D. Level Analysis)**:
+                 - **Crop Water Stress Index (CWSI)**: ${(cornScienceData as any).cwsi} (Scale 0-1).
+                   - > 0.3 = Initial Stress, > 0.6 = Severe Drought.
+                 - **Radar Vegetation Index (RVI)**: ${(cornScienceData as any).rvi} (Scale 0-1).
+                   - Measures structural biomass. < 0.4 implies bare soil/sparse, > 0.7 implies dense canopy.
                  
                  **Action Plan**:
-                 - If Nitrogen Risk is HIGH or CRITICAL, recommend species-specific leaf tissue testing.
-                 - If Chlorophyll is below target, check for species-specific nutrient mobility or water stress.
+                 - **If CWSI > 0.4**: Alert user of "Invisible Drought" (Transpiration has slowed).
+                 - **If RVI is Low + NDVI is High**: This is impossible physically, check for sensor error.
+                 - **If RVI is High + NDVI is Low**: Check for senescence (drying down) or disease (greenness loss but structure remains).
                  `;
             } else {
                 // Fallback for unsupported crops
