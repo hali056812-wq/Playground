@@ -1,0 +1,1 @@
+n,cab,car,cbrown,cw,cm,lai,lidfa,hspot,tts,tto,psi,ant,alpha,prospect_version,typelidf,lidfb,factor,rsoil0,rsoil,psoil,soil_spectrum1,soil_spectrum2,wv,refl,trans,tss,too,tsstoo,rdd,tdd,rsd,tsd,rdo,tdo,rso,rsos,rsod,rddt,rsdt,rdot,rsodt,rsost,rsot,gammasdf,gammasdb,gammaso

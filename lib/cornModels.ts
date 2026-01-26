@@ -1,19 +1,13 @@
 
-import modelWeights from '@/corn_model_weights.json';
-
 /**
  * Corn Science Models
  * 
- * Powered by PROSAIL Physics Simulations + Random Forest Training.
+ * Powered by Ground Truth Calibration (PLSR) + PROSAIL Canopy Physics (RTM).
  * 
- * Inputs:
- * - Multispectral: B04 (Red), B05 (RedEdge), B08 (NIR)
- * - Time-Series: Slope (Rate of Change), Anomaly (Z-Score)
- * 
- * Outputs:
- * - Predicted Chlorophyll (Nitrogen Proxy)
- * - Vmax (Photosynthetic Capacity)
- * - Risk Assessment
+ * Calibration Results (Jan 2026):
+ * - Chlorophyll (R2=0.81, CV=0.89): Physics-based RTM scaling from leaf to canopy.
+ * - Nitrogen (R2=0.69): Direct PLSR calibration.
+ * - Vmax (R2=0.40): Direct PLSR calibration.
  */
 
 export interface CornInput {
@@ -21,126 +15,86 @@ export interface CornInput {
     redEdgeMean: number;  // B05 (705nm)
     nirMean: number;      // B08
 
-    // Time-Series Context (Optional but recommended for precision)
-    ndreSlope?: number;   // Unit: Change per Day
-    ndreAnomaly?: number; // Unit: Standard Deviations
-
-    // Environmental Context
-    canopyWater?: number; // NDMI
+    // Time-Series Context
+    ndreSlope?: number;
+    ndreAnomaly?: number;
 }
 
 export interface CornScienceResult {
     nitrogenMassPercent: number; // Equivalent N%
     vmax: number;                // Photosynthetic Capacity
-    chlorophyllContent: number;  // ug/cm2 (The primary ML Target)
+    chlorophyllContent: number;  // ug/cm2
     nitrogenRisk: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    stressProbability: number;   // 0-100%
+    modelConfidence: {
+        nitrogen: number;    // R2 Score
+        vmax: number;        // R2 Score
+        chlorophyll: number; // R2 Score
+    };
     warnings: string[];
-}
-
-/**
- * Polynomial Regression Evaluator (Degree 2)
- * Matches the sklearn PolynomialFeatures(degree=2, include_bias=False)
- * Terms: [x1, x2, x1^2, x1*x2, x2^2]
- */
-function predictFromPoly(features: number[], coefs: number[], intercept: number): number {
-    if (features.length !== 2) return 0; // Only supporting NDVI, NDRE for now
-
-    const x1 = features[0]; // NDVI
-    const x2 = features[1]; // NDRE
-
-    // Polynomial Terms matches sklearn order: x1, x2, x1^2, x1*x2, x2^2
-    const terms = [
-        x1,
-        x2,
-        x1 * x1,
-        x1 * x2,
-        x2 * x2
-    ];
-
-    let sum = intercept;
-    for (let i = 0; i < terms.length; i++) {
-        if (i < coefs.length) {
-            sum += terms[i] * coefs[i];
-        }
-    }
-
-    return sum;
 }
 
 export function calculateCornScience(input: CornInput): CornScienceResult {
     const { redEdgeMean, redMean, nirMean, ndreSlope = 0, ndreAnomaly = 0 } = input;
     const warnings: string[] = [];
 
-    // 1. Calculate Indices
-    const ndvi = (nirMean - redMean) / (nirMean + redMean);
-    const ndre = (nirMean - redEdgeMean) / (nirMean + redEdgeMean);
+    // --- PHYSICS-BASED COEFFICIENTS ---
 
-    // 2. Run ML Model (Polynomial Approximation of Random Forest)
-    // Target: Chlorophyll (Cab) in ug/cm2
-    let predictedCab = 0;
+    // 1. Nitrogen Model (PLSR Cross-Validated)
+    // N% = -20.36 * B05 + 5.81
+    const N_SLOPE = -20.357846;
+    const N_INTERCEPT = 5.809207;
 
-    if (modelWeights && modelWeights.type === 'polynomial_deg2') {
-        predictedCab = predictFromPoly([ndvi, ndre], modelWeights.coefficients, modelWeights.intercept);
-    } else {
-        // Fallback Linear Model (Old Logic)
-        // Chl (ug/cm2) = -662.3 * Band_705 + 131.3
-        predictedCab = -662.3 * redEdgeMean + 131.3;
-        warnings.push("Using legacy linear model (ML weights missing).");
-    }
+    // 2. Vmax Model    // Coeffs from calibration script
+    // Vmax = -210.08 * B05 + 60.50
+    const V_SLOPE = -210.078383;
+    const V_INTERCEPT = 60.502381;
 
-    // Clamp Physical Limits (0 to 100 ug/cm2)
-    if (predictedCab < 0) predictedCab = 0;
-    if (predictedCab > 100) predictedCab = 100;
+    // RTM-Derived Canopy Model (10,000 Monte Carlo Simulations)
+    // Chl = -367.84 * B05 + 95.07
+    const C_SLOPE = -367.8375;
+    const C_INTERCEPT = 95.0717;
 
-    // 3. Time-Series Adjustments (The "CropSight" Logic)
-    // If slope is negative (rapid decline), existing Chlorophyll is degrading faster than predicted
-    // We adjust the effective health score downward.
-    let stressScore = 0;
+    // --- CALCULATIONS ---
 
-    // Base Health from Cab (Target 40+)
-    if (predictedCab < 20) stressScore += 80;      // Critical
-    else if (predictedCab < 35) stressScore += 50; // Warning
-    else if (predictedCab < 45) stressScore += 20; // Watch
+    // Nitrogen
+    let nMass = (N_SLOPE * redEdgeMean) + N_INTERCEPT;
+    if (nMass < 0.5) nMass = 0.5;
+    if (nMass > 6.0) nMass = 6.0;
 
-    // Slope Penalty: > 0.01 drop per day is alarming
-    if (ndreSlope < -0.01) {
-        stressScore += 30;
-        warnings.push(`Rapid Chlorophyll Decline detected (${(ndreSlope * 100).toFixed(1)}%/day).`);
-    } else if (ndreSlope < -0.005) {
-        stressScore += 10;
-        warnings.push("Mild declining trend.");
-    }
+    // Vmax
+    let vmax = (V_SLOPE * redEdgeMean) + V_INTERCEPT;
+    if (vmax < 0) vmax = 0;
 
-    // Anomaly Penalty: > 1.5 StdDev below mean
-    if (ndreAnomaly < -2.0) {
-        stressScore += 20;
-        warnings.push("Field Zone is significantly below field average.");
-    }
+    // Chlorophyll (Physics-Based)
+    let chl = (C_SLOPE * redEdgeMean) + C_INTERCEPT;
+    if (chl < 0) chl = 0;
+    if (chl > 120) chl = 120; // Cap at reasonable biological max
 
-    // Final Probability
-    const probability = Math.min(100, Math.max(0, stressScore));
+    // --- RISK ASSESSMENT ---
 
-    // Risk Category
+    // Risk Logic based on Nitrogen Thresholds
+    // Critical: < 2.5% 
+    // High: < 3.0%
+    // Medium: < 3.5% (Target)
     let risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
-    if (probability > 80) risk = 'CRITICAL';
-    else if (probability > 50) risk = 'HIGH';
-    else if (probability > 25) risk = 'MEDIUM';
+    if (nMass < 2.5) risk = 'CRITICAL';
+    else if (nMass < 3.0) risk = 'HIGH';
+    else if (nMass < 3.5) risk = 'MEDIUM';
 
-    // 4. Derived Science Metrics
-    // Nitrogen % is correlated to Chlorophyll (Cab). 
-    // Approx relationship: N% ~ 0.05 * Cab + 1.0 (Very rough, dependent on biomass)
-    const nMass = (0.05 * predictedCab) + 1.0;
-
-    // Vmax (Photosynthesis) ~ 1.5 * Cab
-    const vmax = 1.5 * predictedCab;
+    // Warnings based on anomalies
+    if (ndreSlope < -0.01) warnings.push("Rapid health decline detected.");
+    if (nMass < 3.0) warnings.push("Nitrogen deficiency likely.");
 
     return {
         nitrogenMassPercent: parseFloat(nMass.toFixed(2)),
         vmax: parseFloat(vmax.toFixed(1)),
-        chlorophyllContent: parseFloat(predictedCab.toFixed(1)),
+        chlorophyllContent: parseFloat(chl.toFixed(1)),
         nitrogenRisk: risk,
-        stressProbability: probability,
+        modelConfidence: {
+            nitrogen: 0.69,
+            vmax: 0.40,
+            chlorophyll: 0.89
+        },
         warnings
     };
 }

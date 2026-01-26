@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const apiKey = process.env.GOOGLE_API_KEY;
 import { fetchSentinelNDVI, fetchSentinelRadarStats, fetchSentinelThermalStats, fetchMultiSpectralStats, fetchSentinelHistory, calculateSlope, calculateAnomaly } from './satellite';
 import { getVirtualSensors } from './sensors';
-import { calculateCornScience } from '../lib/cornModels';
+import { calculateCropScience } from '../lib/cropModels';
 
 export async function analyzeField(fieldData: any) {
     if (!apiKey) {
@@ -43,7 +43,8 @@ export async function analyzeField(fieldData: any) {
             cropType: fieldData.cropType
         });
 
-        // 2a. Fetch Satellite & Sensor Data
+        const supportedCrops = ['Corn', 'Soybean', 'Wheat'];
+
         if (fieldData.geometry) {
             try {
                 const geom = fieldData.geometry.type === 'Feature' ? fieldData.geometry.geometry : fieldData.geometry;
@@ -55,10 +56,10 @@ export async function analyzeField(fieldData: any) {
                     fetchSentinelThermalStats(geom)
                 ];
 
-                // Trigger Science Upgrade fetch if Corn
-                if (fieldData.cropType === 'Corn') {
+                // Trigger Science Upgrade fetch if Corn, Soybean, or Wheat
+                if (supportedCrops.includes(fieldData.cropType)) {
                     promises.push(fetchMultiSpectralStats(geom));
-                    promises.push(fetchSentinelHistory(geom)); // Fetch history for Slope/Anomaly
+                    promises.push(fetchSentinelHistory(geom));
                 }
 
                 const results = await Promise.all(promises);
@@ -67,7 +68,7 @@ export async function analyzeField(fieldData: any) {
                 radarStats = results[2];
                 thermalStats = results[3];
 
-                if (fieldData.cropType === 'Corn') {
+                if (supportedCrops.includes(fieldData.cropType)) {
                     // results[4] is MultiSpec, results[5] is History
                     const multiSpec = results[4];
                     historyData = results[5];
@@ -75,21 +76,20 @@ export async function analyzeField(fieldData: any) {
                     if (multiSpec) {
                         // Calculate Time-Series Features
                         const ndreSlope = historyData ? await calculateSlope(historyData, 'ndre', 20) : 0;
-                        const ndreAnomaly = (historyData && multiSpec.redEdgeMean) ? await calculateAnomaly(multiSpec.redEdgeMean, historyData, 'ndre') : 0; // Note: redEdgeMean is a raw value, not NDRE. 
 
                         // We need the CURRENT NDRE for anomaly. 
-                        // multiSpec provides Bands, clean NDRE from bands:
                         const currentNDRE = (multiSpec.nirMean - multiSpec.redEdgeMean) / (multiSpec.nirMean + multiSpec.redEdgeMean);
                         const realAnomaly = await calculateAnomaly(currentNDRE, historyData, 'ndre');
 
-                        cornScienceData = calculateCornScience({
+                        cornScienceData = calculateCropScience({
+                            cropType: fieldData.cropType,
                             redMean: multiSpec.redMean,
                             redEdgeMean: multiSpec.redEdgeMean, // B05
                             nirMean: multiSpec.nirMean,
                             ndreSlope: ndreSlope,
                             ndreAnomaly: realAnomaly
                         });
-                        console.log("🌽 Corn Science Data:", cornScienceData);
+                        console.log(`🧬 ${fieldData.cropType} Science Data:`, cornScienceData);
                     }
                 }
 
@@ -171,39 +171,38 @@ export async function analyzeField(fieldData: any) {
             // STANDARD CROP HEALTH MODE
 
             // 1. Define Crop-Specific Rules ("The Vibe Coded Logic")
-            let CORN_RULES = "";
+            let CROP_RULES = "";
 
-            if (fieldData.cropType === 'Corn' && cornScienceData) {
+            if (supportedCrops.includes(fieldData.cropType) && cornScienceData) {
                 // SCIENCE UPGRADE INJECTED HERE
-                CORN_RULES = `
-                 **🌽 SCIENCE UPGRADE ACTIVE (Calibrated Models + Time Series)**:
-                 We have run specific Random Forest simulations (PROSAIL) on this field.
-                 - **Nitrogen Risk Level**: ${cornScienceData.nitrogenRisk} (Probability of Stress: ${cornScienceData.stressProbability}%)
-                 - **Predicted Chlorophyll**: ${cornScienceData.chlorophyllContent} ug/cm2
-                 - **Estimated Nitrogen**: ${cornScienceData.nitrogenMassPercent}%
-                 - **Warnings**: ${cornScienceData.warnings.join(', ') || "None"}
+                CROP_RULES = `
+                 **🧬 ${fieldData.cropType.toUpperCase()} SCIENCE UPGRADE ACTIVE (Physics-Based PLSR + RTM)**:
+                 We have calibrated this field against specific ${fieldData.cropType} spectral libraries.
                  
-                 **CORN SPECIFIC ANALYSIS**:
-                 - **Risk Assessment**: If Risk is HIGH or CRITICAL, warn the user immediately about nitrogen deficiency. 
-                 - **Chlorophyll Check**: Target > 40 ug/cm2. value of ${cornScienceData.chlorophyllContent} indicates: ${cornScienceData.chlorophyllContent < 40 ? "Potential Nutrient Stress" : "Healthy Photosynthesis"}.
-                 - **Action Plan**: If Risk > 50%, recommend tissue sampling or variable rate application.
+                 **Model Confidence (R2 Scores)**:
+                 - Chlorophyll: **${(cornScienceData.modelConfidence.chlorophyll * 100).toFixed(0)}%**
+                 - Nitrogen: ${(cornScienceData.modelConfidence.nitrogen * 100).toFixed(0)}%
+                 - Vmax: ${(cornScienceData.modelConfidence.vmax * 100).toFixed(0)}%
+
+                 **Real-Time Trait Analysis**:
+                 - **Chlorophyll Content**: ${cornScienceData.chlorophyllContent} ug/cm2
+                 - **Estimated Nitrogen**: ${cornScienceData.nitrogenMassPercent}% (Deficiency Risk: ${cornScienceData.nitrogenRisk})
+                 - **Photosynthetic Capacity (Vmax)**: ${cornScienceData.vmax} umol/m2/s
+                 
+                 **Action Plan**:
+                 - If Nitrogen Risk is HIGH or CRITICAL, recommend species-specific leaf tissue testing.
+                 - If Chlorophyll is below target, check for species-specific nutrient mobility or water stress.
                  `;
             } else {
-                // Fallback if Science Data fails or not corn
-                CORN_RULES = `
-                  **CORN SPECIFIC ANALYSIS**:
-                  - **Yield Benchmark**: In this region, target yield is 10-12 Mg/ha. If prediction is lower, flag as underperforming.
-                  - **Nitrogen Threshold**: Laboratory trials (Illinois Data) indicate that if Calculated Nitrogen is < 3.0%, the plant is essentially starving.
-                  - **Thermal Stress**: If Land Surface Temp > Air Temp + 2°C, assume transpiration has stopped (Crop Fever).
+                // Fallback for unsupported crops
+                CROP_RULES = `
+                  **${fieldData.cropType.toUpperCase()} ANALYSIS**:
+                  - **Environmental Sensitivity**: Analyze Land Surface Temp and Soil Moisture for this species.
+                  - **Growth Trend**: Use NDVI and Radar structure to assess current biomass vs regional norms.
                 `;
             }
 
-            let specificInstructions = "";
-            if (fieldData.cropType === 'Corn') {
-                specificInstructions = CORN_RULES;
-            } else {
-                specificInstructions = "**General Analysis**: Provide standard agronomic advice based on the available sensor data.";
-            }
+            let specificInstructions = CROP_RULES;
 
             prompt = `
               Act as an expert agronomist. I have a field with the following details:

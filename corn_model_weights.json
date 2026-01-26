@@ -1,18 +1,1 @@
-{
-    "type": "polynomial_deg2",
-    "features": [
-        "NDVI",
-        "NDRE"
-    ],
-    "coefficients": [
-        40.5,
-        180.2,
-        -10.5,
-        50.1,
-        -20.0
-    ],
-    "intercept": 5.0,
-    "r2_score_portable": 0.85,
-    "rf_r2_score": 0.92,
-    "note": "DEFAULT WEIGHTS (Untrained). Predicts Chlorophyll (Cab) in ug/cm2. Target > 40 is healthy."
-}
+{"chlorophyll": {"slope": -367.8375235854182, "intercept": 95.07167158514589}, "nitrogen": {"slope": -20.3578, "intercept": 5.8092}, "vmax": {"slope": -210.0784, "intercept": 60.5024}}
