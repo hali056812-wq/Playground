@@ -74,3 +74,16 @@ The backend does all the math. You verify these fields exist and render them.
 (Currently Open for Dev)
 -   The Android app does **not** need Sentinel Hub keys.
 -   The Backend handles all API secrets.
+
+## 7. Firebase Integration Strategy
+Since your app uses Firebase, here is the recommended flow:
+1.  **User Scans Field** -> Android App gets Geometry.
+2.  **Call Science API** -> Android App hits `api/v1/science` and gets the JSON result.
+3.  **Save to Firestore** -> Save the *entire* JSON response into a collection like `users/{userId}/scans`.
+    -   This allows you to show a "History" list in the app without re-running the heavy science API.
+
+## 8. Connectivity (Crucial)
+-   **Local Testing**: Your phone cannot see `localhost`. 
+    -   **Emulator**: Use `http://10.0.2.2:3000/api/v1/science`.
+    -   **Physical Device**: You must find your laptop's Local IP (e.g., `192.168.1.5`) or use a tool like **ngrok** to tunnel `localhost` to the internet.
+-   **Production**: Eventually, you will deploy this Next.js project to **Vercel**. Then the URL will be `https://your-app.vercel.app/api/v1/science`.
